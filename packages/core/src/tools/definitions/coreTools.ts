@@ -17,6 +17,7 @@ import {
   getShellDeclaration,
   getExitPlanModeDeclaration,
   getActivateSkillDeclaration,
+  getUpdateTopicDeclaration,
 } from './dynamic-declaration-helpers.js';
 
 // Re-export names for compatibility
@@ -26,6 +27,8 @@ export {
   LS_TOOL_NAME,
   READ_FILE_TOOL_NAME,
   SHELL_TOOL_NAME,
+  WRITE_TO_SHELL_TOOL_NAME,
+  READ_SHELL_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
   EDIT_TOOL_NAME,
   WEB_SEARCH_TOOL_NAME,
@@ -38,6 +41,10 @@ export {
   ASK_USER_TOOL_NAME,
   EXIT_PLAN_MODE_TOOL_NAME,
   ENTER_PLAN_MODE_TOOL_NAME,
+  UPDATE_TOPIC_TOOL_NAME,
+  UPDATE_TOPIC_DISPLAY_NAME,
+  COMPLETE_TASK_TOOL_NAME,
+  COMPLETE_TASK_DISPLAY_NAME,
   // Shared parameter names
   PARAM_FILE_PATH,
   PARAM_DIR_PATH,
@@ -68,6 +75,12 @@ export {
   LS_PARAM_IGNORE,
   SHELL_PARAM_COMMAND,
   SHELL_PARAM_IS_BACKGROUND,
+  SHELL_PARAM_WAIT_SECONDS,
+  WRITE_TO_SHELL_PARAM_PID,
+  WRITE_TO_SHELL_PARAM_INPUT,
+  WRITE_TO_SHELL_PARAM_SPECIAL_KEYS,
+  READ_SHELL_PARAM_PID,
+  READ_SHELL_PARAM_WAIT_SECONDS,
   WEB_SEARCH_PARAM_QUERY,
   WEB_FETCH_PARAM_PROMPT,
   READ_MANY_PARAM_INCLUDE,
@@ -89,8 +102,11 @@ export {
   ASK_USER_OPTION_PARAM_LABEL,
   ASK_USER_OPTION_PARAM_DESCRIPTION,
   PLAN_MODE_PARAM_REASON,
-  EXIT_PLAN_PARAM_PLAN_PATH,
+  EXIT_PLAN_PARAM_PLAN_FILENAME,
   SKILL_PARAM_NAME,
+  TOPIC_PARAM_TITLE,
+  TOPIC_PARAM_SUMMARY,
+  TOPIC_PARAM_STRATEGIC_INTENT,
 } from './base-declarations.js';
 
 // Re-export sets for compatibility
@@ -221,6 +237,13 @@ export const ENTER_PLAN_MODE_DEFINITION: ToolDefinition = {
   overrides: (modelId) => getToolSet(modelId).enter_plan_mode,
 };
 
+export const UPDATE_TOPIC_DEFINITION: ToolDefinition = {
+  get base() {
+    return getUpdateTopicDeclaration();
+  },
+  overrides: (modelId) => getToolSet(modelId).update_topic,
+};
+
 // ============================================================================
 // DYNAMIC TOOL DEFINITIONS (LEGACY EXPORTS)
 // ============================================================================
@@ -233,21 +256,30 @@ export {
 export function getShellDefinition(
   enableInteractiveShell: boolean,
   enableEfficiency: boolean,
+  enableToolSandboxing: boolean = false,
+  interactiveShellMode?: string,
 ): ToolDefinition {
   return {
-    base: getShellDeclaration(enableInteractiveShell, enableEfficiency),
+    base: getShellDeclaration(
+      enableInteractiveShell,
+      enableEfficiency,
+      enableToolSandboxing,
+      interactiveShellMode,
+    ),
     overrides: (modelId) =>
       getToolSet(modelId).run_shell_command(
         enableInteractiveShell,
         enableEfficiency,
+        enableToolSandboxing,
+        interactiveShellMode,
       ),
   };
 }
 
-export function getExitPlanModeDefinition(plansDir: string): ToolDefinition {
+export function getExitPlanModeDefinition(): ToolDefinition {
   return {
-    base: getExitPlanModeDeclaration(plansDir),
-    overrides: (modelId) => getToolSet(modelId).exit_plan_mode(plansDir),
+    base: getExitPlanModeDeclaration(),
+    overrides: (modelId) => getToolSet(modelId).exit_plan_mode(),
   };
 }
 

@@ -4,13 +4,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState, useEffect, useMemo } from 'react';
-import { type BackgroundShell } from './shellCommandProcessor.js';
+import { useState, useEffect, useMemo, useRef } from 'react';
+import { type BackgroundTask } from './shellReducer.js';
 
 export interface BackgroundShellManagerProps {
-  backgroundShells: Map<number, BackgroundShell>;
-  backgroundShellCount: number;
-  isBackgroundShellVisible: boolean;
+  backgroundTasks: Map<number, BackgroundTask>;
+  backgroundTaskCount: number;
+  isBackgroundTaskVisible: boolean;
   activePtyId: number | null | undefined;
   embeddedShellFocused: boolean;
   setEmbeddedShellFocused: (focused: boolean) => void;
@@ -18,9 +18,9 @@ export interface BackgroundShellManagerProps {
 }
 
 export function useBackgroundShellManager({
-  backgroundShells,
-  backgroundShellCount,
-  isBackgroundShellVisible,
+  backgroundTasks,
+  backgroundTaskCount,
+  isBackgroundTaskVisible,
   activePtyId,
   embeddedShellFocused,
   setEmbeddedShellFocused,
@@ -32,8 +32,10 @@ export function useBackgroundShellManager({
     number | null
   >(null);
 
+  const prevShellCountRef = useRef(backgroundTaskCount);
+
   useEffect(() => {
-    if (backgroundShells.size === 0) {
+    if (backgroundTasks.size === 0) {
       if (activeBackgroundShellPid !== null) {
         setActiveBackgroundShellPid(null);
       }
@@ -42,15 +44,23 @@ export function useBackgroundShellManager({
       }
     } else if (
       activeBackgroundShellPid === null ||
-      !backgroundShells.has(activeBackgroundShellPid)
+      !backgroundTasks.has(activeBackgroundShellPid)
     ) {
-      // If active shell is closed or none selected, select the first one (last added usually, or just first in iteration)
-      setActiveBackgroundShellPid(backgroundShells.keys().next().value ?? null);
+      // If active shell is closed or none selected, select the first one
+      setActiveBackgroundShellPid(backgroundTasks.keys().next().value ?? null);
+    } else if (backgroundTaskCount > prevShellCountRef.current) {
+      // A new shell was added — auto-switch to the newest one (last in the map)
+      const pids = Array.from(backgroundTasks.keys());
+      const newestPid = pids[pids.length - 1];
+      if (newestPid !== undefined && newestPid !== activeBackgroundShellPid) {
+        setActiveBackgroundShellPid(newestPid);
+      }
     }
+    prevShellCountRef.current = backgroundTaskCount;
   }, [
-    backgroundShells,
+    backgroundTasks,
     activeBackgroundShellPid,
-    backgroundShellCount,
+    backgroundTaskCount,
     isBackgroundShellListOpen,
   ]);
 
@@ -58,27 +68,27 @@ export function useBackgroundShellManager({
     if (embeddedShellFocused) {
       const hasActiveForegroundShell = !!activePtyId;
       const hasVisibleBackgroundShell =
-        isBackgroundShellVisible && backgroundShells.size > 0;
+        isBackgroundTaskVisible && backgroundTasks.size > 0;
 
       if (!hasActiveForegroundShell && !hasVisibleBackgroundShell) {
         setEmbeddedShellFocused(false);
       }
     }
   }, [
-    isBackgroundShellVisible,
-    backgroundShells,
+    isBackgroundTaskVisible,
+    backgroundTasks,
     embeddedShellFocused,
-    backgroundShellCount,
+    backgroundTaskCount,
     activePtyId,
     setEmbeddedShellFocused,
   ]);
 
   const backgroundShellHeight = useMemo(
     () =>
-      isBackgroundShellVisible && backgroundShells.size > 0
+      isBackgroundTaskVisible && backgroundTasks.size > 0
         ? Math.max(Math.floor(terminalHeight * 0.3), 5)
         : 0,
-    [isBackgroundShellVisible, backgroundShells.size, terminalHeight],
+    [isBackgroundTaskVisible, backgroundTasks.size, terminalHeight],
   );
 
   return {

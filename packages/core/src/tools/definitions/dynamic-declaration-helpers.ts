@@ -21,8 +21,14 @@ import {
   PARAM_DESCRIPTION,
   PARAM_DIR_PATH,
   SHELL_PARAM_IS_BACKGROUND,
-  EXIT_PLAN_PARAM_PLAN_PATH,
+  EXIT_PLAN_PARAM_PLAN_FILENAME,
+  SHELL_PARAM_WAIT_SECONDS,
   SKILL_PARAM_NAME,
+  PARAM_ADDITIONAL_PERMISSIONS,
+  UPDATE_TOPIC_TOOL_NAME,
+  TOPIC_PARAM_TITLE,
+  TOPIC_PARAM_SUMMARY,
+  TOPIC_PARAM_STRATEGIC_INTENT,
 } from './base-declarations.js';
 
 /**
@@ -31,7 +37,9 @@ import {
 export function getShellToolDescription(
   enableInteractiveShell: boolean,
   enableEfficiency: boolean,
+  interactiveShellMode?: string,
 ): string {
+  const isAiMode = interactiveShellMode === 'ai';
   const efficiencyGuidelines = enableEfficiency
     ? `
 
@@ -50,6 +58,11 @@ export function getShellToolDescription(
       Signal: Only included if process was terminated by a signal.
       Background PIDs: Only included if background processes were started.
       Process Group PGID: Only included if available.`;
+
+  if (isAiMode) {
+    const autoPromoteInstructions = `Commands that do not complete within \`${SHELL_PARAM_WAIT_SECONDS}\` seconds are automatically promoted to background. Once promoted, use \`write_to_shell\` and \`read_shell\` to interact with the process. Do NOT use \`&\` to background commands.`;
+    return `This tool executes a given shell command as \`bash -c <command>\`. ${autoPromoteInstructions} Command is executed as a subprocess that leads its own process group. Command process group can be terminated as \`kill -- -PGID\` or signaled as \`kill -s SIGNAL -- -PGID\`.${efficiencyGuidelines}${returnedInfo}`;
+  }
 
   if (os.platform() === 'win32') {
     const backgroundInstructions = enableInteractiveShell
@@ -80,12 +93,34 @@ export function getCommandDescription(): string {
 export function getShellDeclaration(
   enableInteractiveShell: boolean,
   enableEfficiency: boolean,
+  enableToolSandboxing: boolean = false,
+  interactiveShellMode?: string,
 ): FunctionDeclaration {
+  const isAiMode = interactiveShellMode === 'ai';
+
+  // In AI mode, use wait_for_output_seconds instead of is_background
+  const backgroundParam = isAiMode
+    ? {
+        [SHELL_PARAM_WAIT_SECONDS]: {
+          type: 'number' as const,
+          description:
+            'Max seconds to wait for command to complete before auto-promoting to background (default: 5). Set low (2-5) for commands likely to prompt for input (npx, installers, REPLs). Set high (60-300) for long builds or installs. Once promoted, use write_to_shell/read_shell to interact.',
+        },
+      }
+    : {
+        [SHELL_PARAM_IS_BACKGROUND]: {
+          type: 'boolean' as const,
+          description:
+            'Set to true if this command should be run in the background (e.g. for long-running servers or watchers). The command will be started, allowed to run for a brief moment to check for immediate errors, and then moved to the background.',
+        },
+      };
+
   return {
     name: SHELL_TOOL_NAME,
     description: getShellToolDescription(
       enableInteractiveShell,
       enableEfficiency,
+      interactiveShellMode,
     ),
     parametersJsonSchema: {
       type: 'object',
@@ -109,6 +144,45 @@ export function getShellDeclaration(
           description:
             'Set to true if this command should be run in the background (e.g. for long-running servers or watchers). The command will be started, allowed to run for a brief moment to check for immediate errors, and then moved to the background.',
         },
+        delay_ms: {
+          type: 'integer',
+          description:
+            'Optional. Delay in milliseconds to wait after starting the process in the background. Useful to allow the process to start and generate initial output before returning.',
+        },
+        ...backgroundParam,
+        ...(enableToolSandboxing
+          ? {
+              [PARAM_ADDITIONAL_PERMISSIONS]: {
+                type: 'object',
+                description:
+                  'Sandbox permissions for the command. Use this to request additional sandboxed filesystem or network permissions if a previous command failed with "Operation not permitted".',
+                properties: {
+                  network: {
+                    type: 'boolean',
+                    description:
+                      'Set to true to enable network access for this command.',
+                  },
+                  fileSystem: {
+                    type: 'object',
+                    properties: {
+                      read: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description:
+                          'List of additional absolute paths to allow reading.',
+                      },
+                      write: {
+                        type: 'array',
+                        items: { type: 'string' },
+                        description:
+                          'List of additional absolute paths to allow writing.',
+                      },
+                    },
+                  },
+                },
+              },
+            }
+          : {}),
       },
       required: [SHELL_PARAM_COMMAND],
     },
@@ -118,20 +192,18 @@ export function getShellDeclaration(
 /**
  * Returns the FunctionDeclaration for exiting plan mode.
  */
-export function getExitPlanModeDeclaration(
-  plansDir: string,
-): FunctionDeclaration {
+export function getExitPlanModeDeclaration(): FunctionDeclaration {
   return {
     name: EXIT_PLAN_MODE_TOOL_NAME,
     description:
-      'Finalizes the planning phase and transitions to implementation by presenting the plan for user approval. This tool MUST be used to exit Plan Mode before any source code edits can be performed. Call this whenever a plan is ready or the user requests implementation.',
+      'Finalizes the planning phase and transitions to implementation by presenting the plan for formal user approval. You MUST reach an informal agreement with the user in the chat regarding the proposed strategy BEFORE calling this tool. This tool MUST be used to exit Plan Mode before any source code edits can be performed.',
     parametersJsonSchema: {
       type: 'object',
-      required: [EXIT_PLAN_PARAM_PLAN_PATH],
+      required: [EXIT_PLAN_PARAM_PLAN_FILENAME],
       properties: {
-        [EXIT_PLAN_PARAM_PLAN_PATH]: {
+        [EXIT_PLAN_PARAM_PLAN_FILENAME]: {
           type: 'string',
-          description: `The file path to the finalized plan (e.g., "${plansDir}/feature-x.md"). This path MUST be within the designated plans directory: ${plansDir}/`,
+          description: `The filename of the finalized plan (e.g., "feature-x.md"). Do not provide an absolute path.`,
         },
       },
     },
@@ -169,5 +241,36 @@ export function getActivateSkillDeclaration(
     name: ACTIVATE_SKILL_TOOL_NAME,
     description: `Activates a specialized agent skill by name${availableSkillsHint}. Returns the skill's instructions wrapped in \`<activated_skill>\` tags. These provide specialized guidance for the current task. Use this when you identify a task that matches a skill's description. ONLY use names exactly as they appear in the \`<available_skills>\` section.`,
     parametersJsonSchema: zodToJsonSchema(schema),
+  };
+}
+
+/**
+ * Returns the FunctionDeclaration for updating the topic context.
+ */
+export function getUpdateTopicDeclaration(): FunctionDeclaration {
+  return {
+    name: UPDATE_TOPIC_TOOL_NAME,
+    description:
+      'Manages your narrative flow. Include `title` and `summary` only when starting a new Chapter (logical phase) or shifting strategic intent.',
+    parametersJsonSchema: {
+      type: 'object',
+      properties: {
+        [TOPIC_PARAM_TITLE]: {
+          type: 'string',
+          description: 'The title of the new topic or chapter.',
+        },
+        [TOPIC_PARAM_SUMMARY]: {
+          type: 'string',
+          description:
+            '(OPTIONAL) A detailed summary (5-10 sentences) covering both the work completed in the previous topic and the strategic intent of the new topic. This is required when transitioning between topics to maintain continuity.',
+        },
+        [TOPIC_PARAM_STRATEGIC_INTENT]: {
+          type: 'string',
+          description:
+            'A mandatory one-sentence statement of your immediate intent.',
+        },
+      },
+      required: [TOPIC_PARAM_STRATEGIC_INTENT],
+    },
   };
 }
